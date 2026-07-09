@@ -20,7 +20,7 @@ import ChatMessenger from './components/ChatMessenger';
 import ProfileManagement from './components/ProfileManagement';
 import MarketplaceDirectory from './components/MarketplaceDirectory';
 import RoleDashboards from './components/RoleDashboards';
-import { safeStorage } from './utils/storage';
+import { apiService } from './services/apiService';
 import {
   MessageSquare,
   Briefcase,
@@ -39,119 +39,102 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // --- Persistent LocalStorage Database Initialization ---
-  const [tenants, setTenants] = useState<Tenant[]>(() => {
-    const saved = safeStorage.getItem('whp_tenants');
-    return saved ? JSON.parse(saved) : INITIAL_TENANTS;
-  });
-
-  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
-    const saved = safeStorage.getItem('whp_profiles');
-    return saved ? JSON.parse(saved) : INITIAL_PROFILES;
-  });
-
-  const [jobs, setJobs] = useState<Job[]>(() => {
-    const saved = safeStorage.getItem('whp_jobs');
-    return saved ? JSON.parse(saved) : INITIAL_JOBS;
-  });
-
-  const [listings, setListings] = useState<ServiceListing[]>(() => {
-    const saved = safeStorage.getItem('whp_listings');
-    return saved ? JSON.parse(saved) : INITIAL_LISTINGS;
-  });
-
-  const [applications, setApplications] = useState<JobApplication[]>(() => {
-    const saved = safeStorage.getItem('whp_applications');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [reviews, setReviews] = useState<Review[]>(() => {
-    const saved = safeStorage.getItem('whp_reviews');
-    return saved ? JSON.parse(saved) : INITIAL_REVIEWS;
-  });
-
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const saved = safeStorage.getItem('whp_messages');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    const saved = safeStorage.getItem('whp_conversations');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    const saved = safeStorage.getItem('whp_notifications');
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
-  });
+  // --- Persistent Firestore Database State ---
+  const [tenants, setTenants] = useState<Tenant[]>(INITIAL_TENANTS);
+  const [profiles, setProfiles] = useState<UserProfile[]>(INITIAL_PROFILES);
+  const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
+  const [listings, setListings] = useState<ServiceListing[]>(INITIAL_LISTINGS);
+  const [applications, setApplications] = useState<JobApplication[]>([]);
+  const [reviews, setReviews] = useState<Review[]>(INITIAL_REVIEWS);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
 
   // --- Active Session States ---
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    const saved = safeStorage.getItem('whp_current_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [piUser, setPiUser] = useState<PiUser | null>(() => {
-    const saved = safeStorage.getItem('whp_pi_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [piUser, setPiUser] = useState<PiUser | null>(null);
   const [activeTenantId, setActiveTenantId] = useState<string>('tenant-pigigs');
   const [activeTab, setActiveTab] = useState<'explore' | 'dashboard' | 'chat' | 'profile'>('explore');
   const [selectedConversationId, setSelectedConversationId] = useState<string | undefined>(undefined);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
 
-  // Sync session profiles to safeStorage
+  // Fetch initial database items asynchronously from Firestore
   useEffect(() => {
-    if (currentUser) {
-      safeStorage.setItem('whp_current_user', JSON.stringify(currentUser));
-    } else {
-      safeStorage.removeItem('whp_current_user');
-    }
-  }, [currentUser]);
+    const loadGlobalData = async () => {
+      try {
+        const fetchedTenants = await apiService.getTenants();
+        console.log("Fetched Tenants:", fetchedTenants);
+        if (fetchedTenants.length > 0) setTenants(fetchedTenants);
+        
+        const fetchedProfiles = await apiService.getProfiles();
+        if (fetchedProfiles.length > 0) setProfiles(fetchedProfiles);
+      } catch (err) {
+        console.error('Error loading global tenants/profiles:', err);
+      }
+    };
+    loadGlobalData();
+  }, []);
 
+  // Fetch tenant-specific data when tenant changes
   useEffect(() => {
-    if (piUser) {
-      safeStorage.setItem('whp_pi_user', JSON.stringify(piUser));
-    } else {
-      safeStorage.removeItem('whp_pi_user');
-    }
-  }, [piUser]);
+    const loadTenantData = async () => {
+      if (!activeTenantId) return;
+      try {
+        const fetchedJobs = await apiService.getJobs(activeTenantId);
+        setJobs(fetchedJobs);
 
-  // Sync to localStorage whenever changes occur
-  useEffect(() => {
-    safeStorage.setItem('whp_tenants', JSON.stringify(tenants));
-  }, [tenants]);
+        const fetchedListings = await apiService.getListings(activeTenantId);
+        setListings(fetchedListings);
 
-  useEffect(() => {
-    safeStorage.setItem('whp_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+        const fetchedApps = await apiService.getApplications(activeTenantId);
+        setApplications(fetchedApps);
 
-  useEffect(() => {
-    safeStorage.setItem('whp_jobs', JSON.stringify(jobs));
-  }, [jobs]);
+        const fetchedReviews = await apiService.getReviews(activeTenantId);
+        setReviews(fetchedReviews);
+      } catch (err) {
+        console.error('Error loading tenant data:', err);
+      }
+    };
+    loadTenantData();
+  }, [activeTenantId]);
 
+  // Fetch user-specific data when user or tenant changes
   useEffect(() => {
-    safeStorage.setItem('whp_listings', JSON.stringify(listings));
-  }, [listings]);
+    const loadUserData = async () => {
+      if (!activeTenantId || !currentUser) {
+        setNotifications([]);
+        setConversations([]);
+        return;
+      }
+      try {
+        const fetchedNotifs = await apiService.getNotifications(activeTenantId, currentUser.id);
+        setNotifications(fetchedNotifs);
 
-  useEffect(() => {
-    safeStorage.setItem('whp_applications', JSON.stringify(applications));
-  }, [applications]);
+        const fetchedConvs = await apiService.getConversations(activeTenantId, currentUser.id);
+        setConversations(fetchedConvs);
+      } catch (err) {
+        console.error('Error loading user-specific data:', err);
+      }
+    };
+    loadUserData();
+  }, [activeTenantId, currentUser]);
 
+  // Load messages when a conversation is selected
   useEffect(() => {
-    safeStorage.setItem('whp_reviews', JSON.stringify(reviews));
-  }, [reviews]);
-
-  useEffect(() => {
-    safeStorage.setItem('whp_messages', JSON.stringify(messages));
-  }, [messages]);
-
-  useEffect(() => {
-    safeStorage.setItem('whp_conversations', JSON.stringify(conversations));
-  }, [conversations]);
-
-  useEffect(() => {
-    safeStorage.setItem('whp_notifications', JSON.stringify(notifications));
-  }, [notifications]);
+    const loadConversationMessages = async () => {
+      if (!activeTenantId || !selectedConversationId) {
+        setMessages([]);
+        return;
+      }
+      try {
+        const fetchedMessages = await apiService.getMessages(activeTenantId, selectedConversationId);
+        setMessages(fetchedMessages);
+      } catch (err) {
+        console.error('Error loading messages for conversation:', err);
+      }
+    };
+    loadConversationMessages();
+  }, [activeTenantId, selectedConversationId]);
 
   // Find active Tenant details
   const activeTenant = tenants.find((t) => t.id === activeTenantId) || tenants[0];
@@ -297,6 +280,10 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     setNotifications((prev) => [newNotif, ...prev]);
+
+    // Async sync to Firebase
+    apiService.sendMessage(newMsg).catch(err => console.error('Error saving message:', err));
+    apiService.addNotification(newNotif).catch(err => console.error('Error adding notification:', err));
   };
 
   const handleInitiateChat = (recipientId: string, relatedJobId?: string, relatedListingId?: string) => {
@@ -323,6 +310,19 @@ export default function App() {
       };
       setConversations((prev) => [newConv, ...prev]);
       setSelectedConversationId(convId);
+      
+      // Let's send an initial message to persist conversation in Firestore
+      const firstMsg: ChatMessage = {
+        id: `msg-init-${Date.now()}`,
+        tenantId: activeTenantId,
+        conversationId: convId,
+        senderId: currentUser.id,
+        receiverId: recipientId,
+        text: 'Negotiation thread initiated.',
+        timestamp: new Date().toISOString(),
+        read: false
+      };
+      apiService.sendMessage(firstMsg).catch(err => console.error('Error initiating conversation:', err));
     } else {
       setSelectedConversationId(conv.id);
     }
@@ -332,14 +332,17 @@ export default function App() {
   const handleUpdateProfile = (updated: UserProfile) => {
     setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     setCurrentUser(updated);
+    apiService.saveProfile(updated).catch(err => console.error('Error saving profile:', err));
   };
 
   const handleUpdateTenant = (updated: Tenant) => {
     setTenants((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    apiService.saveTenant(updated).catch(err => console.error('Error saving tenant:', err));
   };
 
   const handleAddJob = (job: Job) => {
     setJobs((prev) => [job, ...prev]);
+    apiService.createJob(job).catch(err => console.error('Error creating job:', err));
 
     // Broadcast notification to all Providers in matching category
     const matches = profiles.filter(
@@ -358,19 +361,23 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       setNotifications((prev) => [newNotif, ...prev]);
+      apiService.addNotification(newNotif).catch(err => console.error('Error adding match notification:', err));
     });
   };
 
   const handleAddListing = (listing: ServiceListing) => {
     setListings((prev) => [listing, ...prev]);
+    apiService.createListing(listing).catch(err => console.error('Error creating listing:', err));
   };
 
   const handleUpdateJobStatus = (jobId: string, status: 'Open' | 'InProgress' | 'Completed' | 'Closed') => {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status } : j)));
+    apiService.updateJobStatus(jobId, status).catch(err => console.error('Error updating job status:', err));
   };
 
   const handleAddApplication = (app: JobApplication) => {
     setApplications((prev) => [app, ...prev]);
+    apiService.submitApplication(app).catch(err => console.error('Error submitting application:', err));
 
     // Notify client
     const targetJob = jobs.find((j) => j.id === app.jobId);
@@ -386,11 +393,13 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       setNotifications((prev) => [newNotif, ...prev]);
+      apiService.addNotification(newNotif).catch(err => console.error('Error sending application notification:', err));
     }
   };
 
   const handleRespondToApplication = (appId: string, status: 'Accepted' | 'Rejected') => {
     setApplications((prev) => prev.map((a) => (a.id === appId ? { ...a, status } : a)));
+    apiService.respondToApplication(appId, status).catch(err => console.error('Error responding to application:', err));
 
     const matchedApp = applications.find((a) => a.id === appId);
     if (matchedApp) {
@@ -411,11 +420,13 @@ export default function App() {
         createdAt: new Date().toISOString(),
       };
       setNotifications((prev) => [newNotif, ...prev]);
+      apiService.addNotification(newNotif).catch(err => console.error('Error sending response notification:', err));
     }
   };
 
   const handleAddReview = (review: Review) => {
     setReviews((prev) => [review, ...prev]);
+    apiService.addReview(review).catch(err => console.error('Error adding review:', err));
 
     // Recompute provider's average ratings
     const provReviews = [...reviews, review].filter((r) => r.revieweeId === review.revieweeId);
@@ -425,7 +436,7 @@ export default function App() {
     setProfiles((prev) =>
       prev.map((p) => {
         if (p.id === review.revieweeId && p.providerProfile) {
-          return {
+          const updated = {
             ...p,
             providerProfile: {
               ...p.providerProfile,
@@ -433,6 +444,8 @@ export default function App() {
               reviewCount: provReviews.length,
             },
           };
+          apiService.saveProfile(updated).catch(err => console.error('Error updating profile rating:', err));
+          return updated;
         }
         return p;
       })
@@ -443,6 +456,7 @@ export default function App() {
     setTenants((prev) =>
       prev.map((t) => (t.id === tenantId ? { ...t, isActive: !t.isActive } : t))
     );
+    apiService.toggleTenantStatus(tenantId).catch(err => console.error('Error toggling tenant status:', err));
   };
 
   const handleAddGlobalCategory = (cat: string) => {
@@ -452,14 +466,13 @@ export default function App() {
 
   const handleAddTenant = (newT: Tenant) => {
     setTenants((prev) => [...prev, newT]);
+    apiService.saveTenant(newT).catch(err => console.error('Error saving new tenant:', err));
   };
 
   const handleLogout = () => {
     console.log('[App] Logging out active session...');
     setCurrentUser(null);
     setPiUser(null);
-    safeStorage.removeItem('whp_current_user');
-    safeStorage.removeItem('whp_pi_user');
     setActiveTab('explore');
   };
 
@@ -473,6 +486,7 @@ export default function App() {
     setNotifications((prev) =>
       prev.map((n) => (n.userId === currentUser.id ? { ...n, read: true } : n))
     );
+    apiService.markNotificationsAsRead(activeTenantId, currentUser.id).catch(err => console.error('Error marking notifications as read:', err));
   };
 
   return (
@@ -565,8 +579,10 @@ export default function App() {
                     <h1 className="font-extrabold text-sm text-gray-950 tracking-tight flex items-center gap-1.5">
                       {activeTenant.name}
                       <span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1.5 py-0.2 rounded border border-gray-100">
-                        {activeTenant.subdomain.split('.')[0]}
-                      </span>
+  {activeTenant.subdomain
+    ? activeTenant.subdomain.split(".")[0]
+    : "default"}
+</span>
                     </h1>
                     <p className="text-[10px] text-gray-400 leading-none truncate max-w-[200px] sm:max-w-xs mt-0.5">
                       {activeTenant.tagline}

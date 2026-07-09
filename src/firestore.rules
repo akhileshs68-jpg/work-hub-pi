@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // For development and Sandbox mode where user profiles are simulated without native Firebase Auth,
+    // we allow full read/write access to all collections to ensure seamless data persistence.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

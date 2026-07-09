@@ -66,7 +66,7 @@ export class PiSdkService {
   public isPiBrowser(): boolean {
     if (typeof window === 'undefined') return false;
     const ua = navigator.userAgent.toLowerCase();
-    return ua.includes('pibrowser') || !!window.Pi;
+    return ua.includes('pibrowser');
   }
 
   /**
@@ -77,9 +77,35 @@ export class PiSdkService {
   }
 
   /**
+   * Periodically check for the window.Pi script tag initialization inside Pi Browser
+   */
+  private async waitForPiSDK(timeoutMs: number = 3000): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if (window.Pi) return true;
+
+    return new Promise((resolve) => {
+      const interval = 100;
+      let elapsed = 0;
+      const timer = setInterval(() => {
+        if (window.Pi) {
+          clearInterval(timer);
+          resolve(true);
+        }
+        elapsed += interval;
+        if (elapsed >= timeoutMs) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, interval);
+    });
+  }
+
+  /**
    * Initializes the Pi SDK when accessed inside the Pi Browser environment
    */
   public initialize(): void {
+    if (this.isInitialized) return;
+
     // Determine sandbox mode: if explicit env is set, use it. Otherwise, default to true in desktop browsers and false inside Pi Browser
     const meta = import.meta as any;
     const hasEnvOverride = meta.env && meta.env.VITE_PI_SANDBOX !== undefined;
@@ -106,7 +132,17 @@ export class PiSdkService {
    * Otherwise, returns a mock user after a brief simulated network delay.
    */
   public async authenticateUser(): Promise<PiUser> {
-    if (typeof window !== 'undefined' && window.Pi) {
+    // If inside Pi Browser, wait a moment for the script to load and execute
+    if (this.isPiBrowser() && !this.isInitialized) {
+      await this.waitForPiSDK(3500);
+    }
+
+    // Try to initialize if window.Pi is available but we aren't initialized yet
+    if (!this.isInitialized) {
+      this.initialize();
+    }
+
+    if (typeof window !== 'undefined' && window.Pi && this.isPiBrowser() && this.isInitialized) {
       try {
         console.log('[Pi SDK] Requesting authentication from native Pi Browser...');
         return await window.Pi.authenticate(['username', 'payments'], (incompletePayment) => {
@@ -141,7 +177,17 @@ export class PiSdkService {
   ): Promise<void> {
     console.log(`[Pi SDK] Requesting micropayment of ${amount} Pi for: "${memo}"`);
 
-    if (typeof window !== 'undefined' && window.Pi) {
+    // If inside Pi Browser, wait a moment for the script to load and execute
+    if (this.isPiBrowser() && !this.isInitialized) {
+      await this.waitForPiSDK(3500);
+    }
+
+    // Try to initialize if window.Pi is available but we aren't initialized yet
+    if (!this.isInitialized) {
+      this.initialize();
+    }
+
+    if (typeof window !== 'undefined' && window.Pi && this.isPiBrowser() && this.isInitialized) {
       try {
         await window.Pi.createPayment(
           {
