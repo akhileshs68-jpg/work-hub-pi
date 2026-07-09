@@ -1,0 +1,6 @@
+{
+  "name": "Work Hub Pi",
+  "description": "A multi-tenant SaaS marketplace on the Pi Network for digital and local services with white-label partner portals.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
